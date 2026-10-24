@@ -102,6 +102,8 @@ typedef struct {
   bool allowTextureReplacements;
   bool allowCpuAdapter;
   bool disableCopyFilter;
+  // Keeps the window hidden for the whole run without pausing rendering.
+  bool startHidden;
   // When false, Aurora centers the first window. When true, windowPosX/Y are restored verbatim,
   // including negative coordinates on monitors left of or above the primary display.
   bool hasWindowPosition;

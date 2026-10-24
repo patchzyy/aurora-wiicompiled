@@ -361,7 +361,9 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
   AURORA_ASSERT(window::create_renderer(), "Failed to initialize SDL renderer: {}", SDL_GetError());
 #endif
 
-  window::show_window();
+  if (!g_config.startHidden) {
+    window::show_window();
+  }
   thread::set_current({
       .name = "Main thread",
       .affinity = thread::Affinity::SharedCache,

@@ -769,7 +769,7 @@ bool is_paused() noexcept {
   }
   const auto flags = SDL_GetWindowFlags(g_window);
   if ((flags & SDL_WINDOW_HIDDEN) != 0u) {
-    return true;
+    return !g_config.startHidden;
   }
   // Wait until the window has received focus before respecting pauseOnFocusLost
   if (!g_gotFocus) {
