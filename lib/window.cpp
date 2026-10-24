@@ -569,6 +569,9 @@ bool create_window(AuroraBackend backend) {
   SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #if TARGET_OS_IOS || TARGET_OS_TV
   flags |= SDL_WINDOW_FULLSCREEN;
+  if (g_config.startHidden) {
+    flags |= SDL_WINDOW_HIDDEN;
+  }
 #else
   flags |= SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE;
   if (g_config.startFullscreen) {
@@ -769,7 +772,7 @@ bool is_paused() noexcept {
   }
   const auto flags = SDL_GetWindowFlags(g_window);
   if ((flags & SDL_WINDOW_HIDDEN) != 0u) {
-    return true;
+    return !g_config.startHidden;
   }
   // Wait until the window has received focus before respecting pauseOnFocusLost
   if (!g_gotFocus) {
