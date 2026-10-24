@@ -977,6 +977,15 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
         requiredLimits.maxStorageBuffersPerShaderStage, requiredLimits.minUniformBufferOffsetAlignment,
         requiredLimits.minStorageBufferOffsetAlignment, requiredLimits.maxImmediateSize);
     std::vector<wgpu::FeatureName> requiredFeatures;
+    // Optional native sharing for MetalFX. Devices without either feature keep
+    // the normal renderer; the upscaler checks the enabled pair at runtime.
+    if (backend == wgpu::BackendType::Metal &&
+        g_adapter.HasFeature(wgpu::FeatureName::SharedTextureMemoryIOSurface) &&
+        g_adapter.HasFeature(wgpu::FeatureName::SharedFenceMTLSharedEvent)) {
+      requiredFeatures.push_back(wgpu::FeatureName::SharedTextureMemoryIOSurface);
+      requiredFeatures.push_back(wgpu::FeatureName::SharedFenceMTLSharedEvent);
+    }
+
     g_hasCoreFeatures = false;
     g_bcTexturesSupported = false;
     g_astcTexturesSupported = false;
