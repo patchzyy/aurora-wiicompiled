@@ -73,6 +73,56 @@ TEST_F(RenderWorkerTest, SyncWaitsForPriorWork) {
   EXPECT_TRUE(aurora::gfx::render_worker::is_idle());
 }
 
+TEST_F(RenderWorkerTest, RepeatedSyncPublishesIdle) {
+  aurora::gfx::render_worker::initialize();
+  unsigned completed = 0;
+  for (unsigned i = 0; i < 2000; ++i) {
+    aurora::gfx::render_worker::enqueue_work([&] { ++completed; });
+    aurora::gfx::render_worker::synchronize();
+    ASSERT_EQ(completed, i + 1);
+    ASSERT_TRUE(aurora::gfx::render_worker::is_idle());
+  }
+}
+
+TEST_F(RenderWorkerTest, TimedSyncPublishesCompletedWork) {
+  std::promise<void> entered;
+  std::promise<void> release;
+  const auto gate = release.get_future().share();
+  aurora::gfx::render_worker::initialize();
+  aurora::gfx::render_worker::enqueue_work([&, gate] {
+    entered.set_value();
+    gate.wait();
+  });
+  entered.get_future().wait();
+  EXPECT_FALSE(aurora::gfx::render_worker::synchronize_for(1ms));
+  EXPECT_FALSE(aurora::gfx::render_worker::is_idle());
+  release.set_value();
+  EXPECT_TRUE(aurora::gfx::render_worker::synchronize_for(2s));
+  EXPECT_TRUE(aurora::gfx::render_worker::is_idle());
+}
+
+TEST_F(RenderWorkerTest, WorkerReentryRunsInline) {
+  bool workerIdentity = false;
+  bool nestedRan = false;
+  bool nestedWasInline = false;
+  bool timedSyncCompleted = false;
+  aurora::gfx::render_worker::initialize();
+  EXPECT_FALSE(aurora::gfx::render_worker::is_worker_thread());
+  aurora::gfx::render_worker::enqueue_work([&] {
+    workerIdentity = aurora::gfx::render_worker::is_worker_thread();
+    aurora::gfx::render_worker::synchronize();
+    timedSyncCompleted = aurora::gfx::render_worker::synchronize_for(0us);
+    aurora::gfx::render_worker::enqueue_work([&] { nestedRan = true; });
+    nestedWasInline = nestedRan;
+  });
+  aurora::gfx::render_worker::synchronize();
+  EXPECT_TRUE(workerIdentity);
+  EXPECT_TRUE(nestedWasInline);
+  EXPECT_TRUE(timedSyncCompleted);
+  EXPECT_FALSE(aurora::gfx::render_worker::is_worker_thread());
+  EXPECT_TRUE(aurora::gfx::render_worker::is_idle());
+}
+
 TEST_F(RenderWorkerTest, ShutdownCompletesQueuedWork) {
   std::atomic_int count = 0;
   aurora::gfx::render_worker::initialize();

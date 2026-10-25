@@ -46,6 +46,7 @@ if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
 endif ()
 
 if (CMAKE_SYSTEM_NAME STREQUAL Windows)
+    target_compile_definitions(aurora_core PRIVATE NOMINMAX)
     # stuff for fetching system info.
     target_link_libraries(aurora_core PRIVATE ntdll dxgi advapi32)
 elseif (APPLE)

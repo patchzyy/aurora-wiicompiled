@@ -17,7 +17,7 @@ BoundedQueue g_queue{QueueCapacity};
 thread::Thread g_thread;
 std::atomic_bool g_running = false;
 std::atomic_size_t g_pendingItems = 0;
-std::thread::id g_workerThreadId;
+thread_local bool g_isWorkerThread = false;
 std::atomic<ProducerWaitCallback> g_producerWaitCallback = nullptr;
 
 void complete_sync(const std::shared_ptr<SyncState>& sync) {
@@ -33,7 +33,7 @@ void complete_sync(const std::shared_ptr<SyncState>& sync) {
 }
 
 void worker_main(std::stop_token token) {
-  g_workerThreadId = std::this_thread::get_id();
+  g_isWorkerThread = true;
 
   while (true) {
     bool closed = false;
@@ -49,14 +49,14 @@ void worker_main(std::stop_token token) {
       ZoneScopedN("QueueItem work");
       item->work();
     }
-    complete_sync(item->sync);
     g_pendingItems.fetch_sub(1, std::memory_order_acq_rel);
+    complete_sync(item->sync);
     if (item->type == ItemType::Shutdown) {
       break;
     }
   }
 
-  g_workerThreadId = {};
+  g_isWorkerThread = false;
 }
 
 void enqueue(QueueItem item) {
@@ -282,7 +282,7 @@ bool synchronize_for(std::chrono::microseconds timeout) {
   return thread::wait_for(sync->cv, lock, timeout, [&] { return sync->complete; });
 }
 
-bool is_worker_thread() noexcept { return g_workerThreadId == std::this_thread::get_id(); }
+bool is_worker_thread() noexcept { return g_isWorkerThread; }
 
 bool is_idle() noexcept { return g_pendingItems.load(std::memory_order_acquire) == 0; }
 
