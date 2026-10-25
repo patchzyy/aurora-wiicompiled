@@ -45,6 +45,18 @@ target_link_libraries(io_tests PRIVATE gtest gtest_main ${AURORA_SDL3_TARGET})
 aurora_copy_runtime_dlls(io_tests)
 gtest_discover_tests(io_tests)
 
+add_executable(frame_trace_tests
+  frame_trace_test.cpp
+  ../lib/gfx/frame_trace.cpp
+  ../lib/io.cpp
+  ../lib/logging.cpp
+)
+target_include_directories(frame_trace_tests PRIVATE ../include ../lib)
+target_compile_definitions(frame_trace_tests PRIVATE AURORA TARGET_PC=1)
+target_link_libraries(frame_trace_tests PRIVATE gtest gtest_main fmt::fmt ${AURORA_SDL3_TARGET})
+aurora_copy_runtime_dlls(frame_trace_tests)
+gtest_discover_tests(frame_trace_tests)
+
 add_executable(input_tests
   input_binding_test.cpp
   input_router_test.cpp

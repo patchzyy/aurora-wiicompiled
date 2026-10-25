@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <algorithm>
 #include <concepts>
 #include <condition_variable>
 #include <functional>
@@ -24,6 +25,15 @@ struct Options {
 
 // Applies thread options to the current thread
 void set_current(const Options& options) noexcept;
+
+// CPUs available to this thread, after process and thread affinity restrictions.
+unsigned available_parallelism() noexcept;
+
+namespace detail {
+constexpr bool cache_affinity_has_capacity(unsigned available, unsigned selected) noexcept {
+  return selected != 0 && selected <= available && selected >= std::min(available, 4u);
+}
+} // namespace detail
 
 // libc++ on Windows truncates sub-millisecond waits to zero, so its timed condvar waits spin.
 void wait_once(std::condition_variable& cv, std::unique_lock<std::mutex>& lock,

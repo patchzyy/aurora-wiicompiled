@@ -1,5 +1,7 @@
 #include "presentation.hpp"
+#include "frame_trace.hpp"
 
+#include "pipeline_cache.hpp"
 #include "render_worker.hpp"
 #include "resources.hpp"
 #include "../gx/frame_interpolation.hpp"
@@ -259,6 +261,14 @@ void aurora_report_producer_paced(bool paced) {
   aurora::gx::report_producer_paced(paced);
 }
 
+void aurora_report_producer_timing(uint64_t wallNanos, uint64_t waitNanos) {
+  aurora::gfx::presentation::trace_producer_timing(wallNanos, waitNanos);
+}
+
+void aurora_report_benchmark_ready() {
+  aurora::gfx::presentation::trace_frame("benchmark_ready", 0);
+}
+
 void aurora_get_present_timing(AuroraPresentTiming* timing) {
   if (timing != nullptr) {
     *timing = aurora::gfx::presentation::snapshot_timing();
@@ -272,7 +282,7 @@ void aurora_set_skip_unready_pipelines(bool enabled) {
 
 bool aurora_get_skip_unready_pipelines() { return g_skipUnreadyPipelines.load(std::memory_order_acquire); }
 
-uint32_t aurora_get_queued_pipeline_count() { return aurora_get_stats()->queuedPipelines; }
+uint32_t aurora_get_queued_pipeline_count() { return aurora::gfx::queued_pipeline_count(); }
 
 void aurora_set_disable_copy_filter(bool disabled) { aurora::g_config.disableCopyFilter = disabled; }
 

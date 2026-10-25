@@ -1,4 +1,6 @@
 #include "pipeline_cache.hpp"
+#include "frame_trace.hpp"
+#include "presentation.hpp"
 
 #include "clear.hpp"
 #include "frame_packet.hpp"
@@ -366,6 +368,14 @@ struct AtomicStatRef {
 static AtomicStatRef queuedPipelines{detail::resources().stats.queuedPipelines};
 static AtomicStatRef createdPipelines{detail::resources().stats.createdPipelines};
 #endif
+
+uint32_t queued_pipeline_count() noexcept {
+#if defined(__cpp_lib_atomic_ref)
+  return queuedPipelines.load(std::memory_order_relaxed);
+#else
+  return __atomic_load_n(&detail::resources().stats.queuedPipelines, __ATOMIC_RELAXED);
+#endif
+}
 
 template <typename PipelineConfig>
 static PipelineCacheWrite make_pipeline_cache_write(ShaderType type, PipelineRef hash, const PipelineConfig& config,
@@ -1282,15 +1292,22 @@ static void move_pending_pipeline_to_front(PipelineRef hash) {
 
 bool get_pipeline(PipelineRef ref, CompiledPipeline& pipeline) {
   std::unique_lock guard{g_pipelineMutex};
+  uint64_t waitStart = 0;
   if (g_requiredPipelines.contains(ref)) {
+    if (presentation::frame_trace_enabled()) waitStart = presentation::now_nanos();
     g_pipelineReadyCv.wait(guard, [=] { return g_pipelines.contains(ref) || g_pipelineThreadEnd; });
   } else if (t_requireReadyPipelines && g_hasPipelineThread && !g_pipelines.contains(ref) &&
              g_pendingPipelines.contains(ref)) {
+    if (presentation::frame_trace_enabled()) waitStart = presentation::now_nanos();
     move_pending_pipeline_to_front(ref);
     g_pipelineQueueCv.notify_one();
     g_pipelineReadyCv.wait(guard, [=] {
       return g_pipelines.contains(ref) || !g_pendingPipelines.contains(ref) || g_pipelineThreadEnd;
     });
+  }
+  if (waitStart) {
+    const auto duration = presentation::now_nanos() - waitStart;
+    if (duration >= 50000) presentation::trace_frame("pipeline_wait", 0, -1, duration);
   }
 
   const auto it = g_pipelines.find(ref);

@@ -180,6 +180,12 @@ void aurora_set_present_schedule(uint64_t baseNanos, uint64_t intervalNanos);
 // Reports whether the frame about to be ended met its display boundary. Interpolation sizes its
 // slot group from this, backing off after misses. Only paced presents may report.
 void aurora_report_producer_paced(bool paced);
+// Optional frame-trace input from the single producer/game thread. Wait time includes
+// VI pacing and time blocked on host workers; busy time remains wall time minus those waits.
+// Call after the frame is sealed and a separate GX producer has been joined.
+void aurora_report_producer_timing(uint64_t wallNanos, uint64_t waitNanos);
+// Marks a common startup point for automated frame measurements.
+void aurora_report_benchmark_ready();
 
 void aurora_set_log_level(AuroraLogLevel level);
 void aurora_set_pause_on_focus_lost(bool value);

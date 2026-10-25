@@ -15,6 +15,7 @@
 #include "gx/command_processor.hpp"
 #include "gx/fifo.hpp"
 #include "gx/frame_interpolation.hpp"
+#include "gfx/frame_trace.hpp"
 #include "gx/gx.hpp"
 #include "gx/texture.hpp"
 #include "imgui.hpp"
@@ -425,6 +426,7 @@ void shutdown() noexcept {
   imgui::shutdown();
   gfx::shutdown();
   webgpu::shutdown();
+  gfx::presentation::stop_frame_trace();
 #endif
   gamepad::shutdown();
   window::shutdown();
@@ -536,7 +538,14 @@ void end_frame_gx(imgui::DrawData imguiDrawData) noexcept {
                      const gfx::InterpolationReplay& replay) {
     const auto presentMode = webgpu::g_graphicsConfig.surfaceConfiguration.presentMode;
     const bool blockingPresent = presentMode == wgpu::PresentMode::Fifo || presentMode == wgpu::PresentMode::FifoRelaxed;
-    const auto present = [&](wgpu::CommandEncoder& encoder, bool finalPresent, bool show) {
+    const bool trace = gfx::presentation::frame_trace_enabled();
+    if (trace) {
+      gfx::presentation::trace_frame("pipelines", replay.frameId, -1, 0, 0, 0,
+                                     gfx::queued_pipeline_count());
+    }
+    const auto present = [&](wgpu::CommandEncoder& encoder, bool finalPresent, bool show,
+                             int slot, uint64_t deadlineNanos, uint64_t intervalNanos) {
+      const auto workStart = trace ? gfx::presentation::now_nanos() : 0;
       if (show && blockingPresent) {
         const wgpu::CommandBufferDescriptor sceneDescriptor{.label = "Scene command buffer"};
         const auto sceneCommands = encoder.Finish(&sceneDescriptor);
@@ -688,8 +697,15 @@ void end_frame_gx(imgui::DrawData imguiDrawData) noexcept {
         if (status) {
           gfx::after_present();
           gfx::presentation::record_present(false);
+          if (trace) {
+            gfx::presentation::trace_frame(finalPresent ? "present_real" : "present_interp", replay.frameId,
+                slot, 0, deadlineNanos, intervalNanos);
+          }
         } else {
           Log.warn("Surface present failed");
+          if (trace) {
+            gfx::presentation::trace_frame("present_failed", replay.frameId, slot, 0, deadlineNanos, intervalNanos);
+          }
           webgpu::release_surface();
         }
       } else if (show && g_surface) {
@@ -720,6 +736,15 @@ void end_frame_gx(imgui::DrawData imguiDrawData) noexcept {
           break;
         }
       }
+      if (trace) {
+        gfx::presentation::trace_frame("surface_wait", replay.frameId, slot, surfaceWaitNanos);
+        gfx::presentation::trace_frame("present_work", replay.frameId, slot,
+            gfx::presentation::now_nanos() - workStart - surfaceWaitNanos);
+        if (!show || !canPresent) {
+          gfx::presentation::trace_frame(!show ? "drop_display" : "present_unavailable", replay.frameId,
+              slot, 0, deadlineNanos, intervalNanos);
+        }
+      }
     };
 
     // Interpolated slots replay the frame with blended transforms and present between frames:
@@ -728,6 +753,10 @@ void end_frame_gx(imgui::DrawData imguiDrawData) noexcept {
     const uint32_t slots =
         gfx::presentation::display_shows_interpolation(schedule.intervalNanos) ? replay.slots : 0;
     const uint32_t groupSize = slots + 1;
+    if (trace && slots < replay.slots) {
+      gfx::presentation::trace_frame("display_limited", replay.frameId, -1, 0, 0,
+          schedule.intervalNanos, replay.slots - slots);
+    }
     const auto deadline = [&](uint32_t slot) -> uint64_t {
       return slots != 0 && schedule.baseNanos != 0 && schedule.intervalNanos != 0
                  ? schedule.baseNanos + schedule.intervalNanos * slot / groupSize
@@ -740,19 +769,32 @@ void end_frame_gx(imgui::DrawData imguiDrawData) noexcept {
     for (uint32_t slot = 0; slot < slots; ++slot) {
       // A slot that would only show after the next one is due adds latency without motion.
       if (const uint64_t next = deadline(slot + 1); next != 0 && gfx::presentation::now_nanos() >= next) {
+        if (trace) gfx::presentation::trace_frame("drop_late", replay.frameId, slot, 0,
+            deadline(slot), schedule.intervalNanos / groupSize);
         continue;
       }
       if (!admit(deadline(slot))) {
+        if (trace) gfx::presentation::trace_frame("drop_display", replay.frameId, slot, 0,
+            deadline(slot), schedule.intervalNanos / groupSize);
         continue;
       }
+      const auto encodeStart = trace ? gfx::presentation::now_nanos() : 0;
       const wgpu::CommandEncoderDescriptor slotDescriptor{.label = "Interpolated frame encoder"};
       auto slotEncoder = g_device.CreateCommandEncoder(&slotDescriptor);
       replay.encode(slotEncoder, slot);
+      if (trace) gfx::presentation::trace_frame("replay_encode", replay.frameId, slot,
+          gfx::presentation::now_nanos() - encodeStart);
+      const auto waitStart = trace ? gfx::presentation::now_nanos() : 0;
       gfx::presentation::wait_until(deadline(slot));
-      present(slotEncoder, false, true);
+      if (trace) gfx::presentation::trace_frame("pacer_wait", replay.frameId, slot,
+          gfx::presentation::now_nanos() - waitStart, deadline(slot), schedule.intervalNanos / groupSize);
+      present(slotEncoder, false, true, slot, deadline(slot), schedule.intervalNanos / groupSize);
     }
+    const auto waitStart = trace ? gfx::presentation::now_nanos() : 0;
     gfx::presentation::wait_until(deadline(slots));
-    present(encoder, true, admit(deadline(slots)));
+    if (trace) gfx::presentation::trace_frame("pacer_wait", replay.frameId, slots,
+        gfx::presentation::now_nanos() - waitStart, deadline(slots), schedule.intervalNanos / groupSize);
+    present(encoder, true, admit(deadline(slots)), slots, deadline(slots), schedule.intervalNanos / groupSize);
 
     for (auto& callback : afterSubmitCallbacks) {
       if (callback) {

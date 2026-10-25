@@ -4,12 +4,16 @@
 #include <tracy/Tracy.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -155,13 +159,17 @@ std::optional<CacheDomain> find_cache_domain() {
 }
 
 bool apply_cache_domain(const CacheDomain& domain) noexcept {
+  cpu_set_t allowed;
+  CPU_ZERO(&allowed);
+  if (!get_current_thread_affinity(allowed)) return false;
   cpu_set_t set;
   CPU_ZERO(&set);
   for (const auto& processor : domain.processors) {
-    if (processor.number < CPU_SETSIZE) {
+    if (processor.number < CPU_SETSIZE && CPU_ISSET(static_cast<int>(processor.number), &allowed)) {
       CPU_SET(static_cast<int>(processor.number), &set);
     }
   }
+  if (!detail::cache_affinity_has_capacity(CPU_COUNT(&allowed), CPU_COUNT(&set))) return false;
   return set_current_thread_affinity(set);
 }
 #elif defined(_WIN32)
@@ -220,6 +228,9 @@ std::optional<CacheDomain> find_cache_domain() {
 }
 
 bool apply_cache_domain(const CacheDomain& domain) noexcept {
+  GROUP_AFFINITY allowed{};
+  if (!GetThreadGroupAffinity(GetCurrentThread(), &allowed) ||
+      allowed.Group != domain.processors.front().group) return false;
   GROUP_AFFINITY affinity{};
   affinity.Group = domain.processors.front().group;
   for (const auto& processor : domain.processors) {
@@ -227,6 +238,8 @@ bool apply_cache_domain(const CacheDomain& domain) noexcept {
       affinity.Mask |= KAFFINITY{1} << processor.number;
     }
   }
+  affinity.Mask &= allowed.Mask;
+  if (!detail::cache_affinity_has_capacity(std::popcount(allowed.Mask), std::popcount(affinity.Mask))) return false;
   return SetThreadGroupAffinity(GetCurrentThread(), &affinity, nullptr) != 0;
 }
 #else
@@ -281,6 +294,23 @@ void set_thread_name(const std::string& name) noexcept {
 }
 } // namespace
 
+unsigned available_parallelism() noexcept {
+#if defined(_WIN32)
+  GROUP_AFFINITY allowed{};
+  if (GetThreadGroupAffinity(GetCurrentThread(), &allowed) && allowed.Mask != 0) {
+    return static_cast<unsigned>(std::popcount(allowed.Mask));
+  }
+#elif defined(__linux__)
+  cpu_set_t allowed;
+  CPU_ZERO(&allowed);
+  if (get_current_thread_affinity(allowed)) {
+    const auto count = static_cast<unsigned>(CPU_COUNT(&allowed));
+    if (count != 0) return count;
+  }
+#endif
+  return std::max(std::thread::hardware_concurrency(), 1u);
+}
+
 void set_current(const Options& options) noexcept {
   if (!options.name.empty()) {
     set_thread_name(options.name);
@@ -291,7 +321,12 @@ void set_current(const Options& options) noexcept {
 
   SDL_SetCurrentThreadPriority(to_sdl_priority(options.priority));
   if (options.affinity == Affinity::SharedCache) {
-    pin_shared_cache();
+    const char* overrideValue = std::getenv("MKW_SHARED_CACHE_AFFINITY");
+    if (!overrideValue || std::string_view(overrideValue) != "0") pin_shared_cache();
+  }
+  if (const char* trace = std::getenv("MKW_FRAME_TRACE"); trace && *trace) {
+    std::fprintf(stderr, "[aurora::thread] %s: %u available CPUs after affinity\n",
+                 options.name.c_str(), available_parallelism());
   }
 }
 

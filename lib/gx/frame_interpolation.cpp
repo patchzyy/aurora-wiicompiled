@@ -1,8 +1,11 @@
 #include "frame_interpolation.hpp"
 
 #include "../internal.hpp"
+#include "../thread.hpp"
 #include "aurora/gfx.h"
 #include "../gfx/recording.hpp"
+#include "../gfx/frame_trace.hpp"
+#include "../gfx/presentation.hpp"
 
 // Guest matrices really do carry NaN/Inf, and the isfinite guards here keep them
 // out of the MatchEdge sort. Needs -fno-finite-math-only (see runtime/CMakeLists.txt).
@@ -16,6 +19,8 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
+#include <cstdlib>
+#include <charconv>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -96,7 +101,17 @@ private:
     const unsigned hardware = std::thread::hardware_concurrency();
     // The caller helps too. Cap the helpers: tasks are short memcpy+math, so dispatch
     // overhead and memory bandwidth dominate past a few threads.
-    const unsigned helpers = hardware > 2 ? std::min(hardware - 1, 6u) : 0;
+    unsigned helpers = hardware > 2 ? std::min(hardware - 1, 6u) : 0;
+    if (const char* value = std::getenv("MKW_INTERPOLATION_HELPERS")) {
+      unsigned requested = 0;
+      const auto end = value + std::strlen(value);
+      const auto result = std::from_chars(value, end, requested);
+      if (result.ec == std::errc{} && result.ptr == end && requested <= 6) helpers = requested;
+    }
+    if (gfx::presentation::frame_trace_enabled()) {
+      Log.info("interpolation worker helpers: {} (hardware threads: {}, caller affinity CPUs: {})",
+               helpers, hardware, thread::available_parallelism());
+    }
     m_workers.reserve(helpers);
     for (unsigned i = 0; i < helpers; ++i) {
       m_workers.emplace_back([this] { worker_loop(); });
@@ -1360,6 +1375,7 @@ void finalize_frame_interpolation() noexcept {
     // A handful of tasks costs more to schedule than to run. The pool stands in for
     // std::execution::par, which libc++ does not provide at all.
     constexpr size_t kMinimumParallelInterpolationTasks = 64;
+    const auto uniformsStart = gfx::presentation::frame_trace_enabled() ? gfx::presentation::now_nanos() : 0;
     if (s_pendingUniformInterpolations.size() < kMinimumParallelInterpolationTasks) {
       std::for_each(s_pendingUniformInterpolations.begin(), s_pendingUniformInterpolations.end(),
                     interpolatePendingUniform);
@@ -1368,6 +1384,8 @@ void finalize_frame_interpolation() noexcept {
           s_pendingUniformInterpolations.size(),
           [&](size_t index) { interpolatePendingUniform(s_pendingUniformInterpolations[index]); });
     }
+    if (uniformsStart) gfx::presentation::trace_frame("interp_uniforms", 0, -1,
+        gfx::presentation::now_nanos() - uniformsStart, 0, 0, s_pendingUniformInterpolations.size());
   }
   s_hasInterpolatedFrame.store(eligible, std::memory_order_release);
   s_pendingUniformInterpolations.clear();

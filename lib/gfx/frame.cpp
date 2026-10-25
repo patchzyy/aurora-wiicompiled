@@ -2,6 +2,8 @@
 #include "../gx/frame_interpolation.hpp"
 #include "encoding.hpp"
 #include "frame.hpp"
+#include "frame_trace.hpp"
+#include "presentation.hpp"
 
 #include "pipeline_cache.hpp"
 #include "readback/readback.hpp"
@@ -720,6 +722,7 @@ std::optional<size_t> acquire_mapped_staging_buffer() {
 bool begin_frame() {
   ZoneScoped;
   // pace_frame_start();
+  const auto resourceStart = presentation::frame_trace_enabled() ? presentation::now_nanos() : 0;
   const size_t frameSlot = acquire_frame_slot();
   const auto stagingSlot = acquire_mapped_staging_buffer();
   if (!stagingSlot) {
@@ -730,6 +733,9 @@ bool begin_frame() {
   auto& frame = g_framePackets[frameSlot];
   frame = {};
   frame.frameId = g_nextFrameId++;
+  if (resourceStart) {
+    presentation::trace_frame("resource_wait", frame.frameId, -1, presentation::now_nanos() - resourceStart);
+  }
   frame.frameIndex = g_frameIndex;
   frame.stagingBuffer = *stagingSlot;
   size_t bufferOffset = 0;
@@ -756,6 +762,7 @@ bool begin_frame() {
   begin_pipeline_frame();
   gx::begin_frame_interpolation();
   render_worker::enqueue_begin_frame(frame.frameId, [frameSlot] {
+    presentation::trace_frame("worker_begin", g_framePackets[frameSlot].frameId);
     constexpr wgpu::CommandEncoderDescriptor EncoderDescriptor{.label = "Redraw encoder"};
     g_framePackets[frameSlot].encoder = g_device.CreateCommandEncoder(&EncoderDescriptor);
     webgpu::gpu_prof::frame_begin(g_framePackets[frameSlot].encoder);
@@ -778,17 +785,40 @@ void end_frame(EndFrameCallback callback) {
   auto& frame = *recorded.packet;
   const size_t frameSlot = recorded.frameSlot;
   const uint64_t frameId = frame.frameId;
+  const bool trace = presentation::frame_trace_enabled();
+  if (trace && g_cpuFrameStart.time_since_epoch().count() != 0) {
+    presentation::trace_frame("produce", frameId, -1,
+        duration_ns(PresentClock::now() - g_cpuFrameStart));
+  }
   end_pipeline_frame();
   ++g_frameIndex;
   // Interpolated copies are written into the mapped staging buffer, so this precedes the unmap.
+  const auto sealStart = trace ? presentation::now_nanos() : 0;
   gx::finalize_frame_interpolation();
   const uint32_t interpolationSlots =
       gx::has_interpolated_frame() && gx::frame_interpolation_replay_safe() ? gx::interpolated_frame_count() : 0;
+  if (trace) {
+    const auto schedule = presentation::present_schedule();
+    presentation::set_trace_producer_frame(frameId);
+    presentation::trace_frame("seal", frameId, -1, presentation::now_nanos() - sealStart,
+        schedule.baseNanos, schedule.intervalNanos, interpolationSlots);
+    AuroraFrameInterpolationDiagnostics diag{};
+    gx::get_frame_interpolation_diagnostics(diag);
+    const uint64_t health = diag.activeSamples | (diag.targetSamples << 8) | (diag.eligible << 16) |
+                            (diag.replaySafe << 17) | (presentation::producer_paced() ? 1u << 18 : 0u);
+    presentation::trace_frame("interp_health", frameId, -1, 0, 0, 0, health);
+    presentation::trace_frame("interp_matches", frameId, -1, 0, 0, 0,
+        (static_cast<uint64_t>(diag.matchable) << 32) | diag.matches);
+  }
 
   const size_t stagingSlot = frame.stagingBuffer;
-  render_worker::enqueue_end_frame(frameId, [frameSlot, stagingSlot, interpolationSlots,
+  const auto queuedAt = trace ? presentation::now_nanos() : 0;
+  render_worker::enqueue_end_frame(frameId, [frameSlot, stagingSlot, interpolationSlots, queuedAt,
                                              callback = std::move(callback)]() mutable {
     auto& packet = g_framePackets[frameSlot];
+    if (queuedAt) {
+      presentation::trace_frame("worker_queue", packet.frameId, -1, presentation::now_nanos() - queuedAt);
+    }
     g_stagingBuffers[stagingSlot].Unmap();
     g_mappingStates[stagingSlot].store(BufferMapState::Unmapped, std::memory_order_release);
     auto encoder = std::move(packet.encoder);
@@ -797,6 +827,7 @@ void end_frame(EndFrameCallback callback) {
     // Slots may be skipped, so the first one actually encoded uploads the staging data.
     bool stagingCopied = false;
     const InterpolationReplay replay{
+        .frameId = packet.frameId,
         .slots = interpolationSlots,
         .encode =
             [&packet, &stagingCopied](wgpu::CommandEncoder& cmd, uint32_t slot) {

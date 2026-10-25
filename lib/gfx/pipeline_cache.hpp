@@ -35,6 +35,7 @@ void initialize_pipeline_cache();
 void shutdown_pipeline_cache();
 void begin_pipeline_frame();
 void end_pipeline_frame();
+uint32_t queued_pipeline_count() noexcept;
 void rebuild_pipeline_cache();
 
 PipelineRef find_pipeline(const gx::PipelineConfig& config, const RenderTargetLayout& layout, bool blocking = false);

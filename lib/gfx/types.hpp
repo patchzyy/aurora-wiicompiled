@@ -39,6 +39,7 @@ using TextureHandle = std::shared_ptr<TextureRef>;
 using AfterSubmitCallback = std::function<void()>;
 // Re-encodes the frame for interpolated presentation slot `slot` into `cmd`.
 struct InterpolationReplay {
+  uint64_t frameId = 0;
   uint32_t slots = 0;
   std::function<void(wgpu::CommandEncoder& cmd, uint32_t slot)> encode;
 };
