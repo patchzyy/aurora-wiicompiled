@@ -4,6 +4,7 @@
 #include "gfx/tex_copy_conv.hpp"
 #include "gfx/texture_convert.hpp"
 #include "gfx/texture_replacement.hpp"
+#include "gfx/presentation.hpp"
 #include "internal.hpp"
 
 #include <algorithm>
@@ -21,6 +22,7 @@ std::optional<aurora::texture::TextureSourceKey> s_sourceKey;
 aurora::gfx::TextureHandle s_sourceReplacement;
 uint64_t s_replacementId = 0;
 uint64_t s_sourceReplacementId = 0;
+uint64_t s_guestWriteGeneration = AURORA_GUEST_WRITE_UNTRACKED;
 } // namespace
 
 namespace aurora {
@@ -55,7 +57,10 @@ void reset_texture_stubs() {
   s_sourceReplacement.reset();
   s_replacementId = 0;
   s_sourceReplacementId = 0;
+  s_guestWriteGeneration = AURORA_GUEST_WRITE_UNTRACKED;
 }
+
+void set_guest_write_generation(uint64_t generation) { s_guestWriteGeneration = generation; }
 
 uint64_t texture_allocations() { return s_textureAllocations; }
 uint64_t palette_conversions() { return s_paletteConversions; }
@@ -71,6 +76,10 @@ void set_source_replacement(aurora::texture::TextureSourceKey key, gfx::TextureH
 }
 } // namespace testing
 } // namespace aurora::gx
+
+namespace aurora::gfx::presentation {
+uint64_t guest_write_generation(const void*, size_t) noexcept { return s_guestWriteGeneration; }
+}
 
 namespace aurora::gfx {
 uint64_t calc_texture_size(wgpu::TextureFormat format, uint32_t width, uint32_t height, uint32_t mips) noexcept {

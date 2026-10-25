@@ -7,6 +7,7 @@
 #include "gx_test_common.hpp"
 #include "__gx.h"
 #include "gx/regs.hpp"
+#include "gfx/recording.hpp"
 
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL_main.h>
@@ -28,8 +29,13 @@ extern std::atomic<uint32_t> endOffscreenCount;
 extern std::atomic<uint32_t> resolvePassCount;
 extern std::atomic<uint32_t> offscreenWidth;
 extern std::atomic<uint32_t> offscreenHeight;
+extern ResolveOptions lastResolveOptions;
 } // namespace testing
 } // namespace aurora::gfx
+
+namespace aurora::gx::testing {
+extern std::atomic<uint32_t> invalidateSourcesCount;
+}
 
 namespace {
 bool wait_for(const std::atomic<uint32_t>& value, uint32_t expected) {
@@ -174,6 +180,36 @@ TEST_F(GXFifoTest, FrameBufferCommandsPublishAfterTheirCompletePayload) {
   ASSERT_TRUE(wait_for(endOffscreenCount, 1));
   aurora::gx::fifo::drain();
   aurora::gx::fifo::end_frame();
+}
+
+TEST_F(GXFifoTest, TextureCopyPreservesResolveOptions) {
+  using aurora::gfx::testing::lastResolveOptions;
+  auto& count = aurora::gfx::testing::resolvePassCount;
+  for (const auto clamp : {GX_CLAMP_NONE, GX_CLAMP_TOP, GX_CLAMP_BOTTOM}) {
+    count.store(0, std::memory_order_relaxed);
+    u8 filter[7] = {1, 2, 3, 4, 5, 6, 7};
+    GXSetCopyFilter(GX_FALSE, nullptr, GX_TRUE, filter);
+    GXSetTexCopySrc(0, 0, 32, 32);
+    GXSetTexCopyDst(32, 32, GX_TF_RGBA8, GX_FALSE);
+    GXSetCopyClamp(clamp);
+    GXCopyTex(reinterpret_cast<void*>(0x1234), GX_FALSE);
+    decode_fifo(capture_fifo());
+    ASSERT_EQ(count.load(std::memory_order_acquire), 1u);
+    EXPECT_EQ(lastResolveOptions.copyFilter, (std::array<u32, 3>{3, 12, 13}));
+    EXPECT_FLOAT_EQ(lastResolveOptions.copyFilterRowStride, 1.f);
+    EXPECT_EQ(lastResolveOptions.clampTop, (clamp & GX_CLAMP_TOP) != 0);
+    EXPECT_EQ(lastResolveOptions.clampBottom, (clamp & GX_CLAMP_BOTTOM) != 0);
+    EXPECT_TRUE(lastResolveOptions.persistent);
+  }
+}
+
+TEST_F(GXFifoTest, InvalidateTexturesNotifiesSourceCache) {
+  auto& count = aurora::gx::testing::invalidateSourcesCount;
+  count.store(0, std::memory_order_relaxed);
+  GXInvalidateTexAll();
+  EXPECT_EQ(count.load(std::memory_order_acquire), 0u);
+  decode_fifo(capture_fifo());
+  EXPECT_EQ(count.load(std::memory_order_acquire), 1u);
 }
 
 TEST_F(GXFifoTest, DrawDoneProcessesPublishedAndUnpublishedTailBeforeCallback) {

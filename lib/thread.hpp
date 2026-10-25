@@ -31,7 +31,7 @@ unsigned available_parallelism() noexcept;
 
 namespace detail {
 constexpr bool cache_affinity_has_capacity(unsigned available, unsigned selected) noexcept {
-  return selected != 0 && selected <= available && selected >= std::min(available, 4u);
+  return selected != 0 && selected <= available && selected >= (std::min)(available, 4u);
 }
 } // namespace detail
 

@@ -308,7 +308,7 @@ unsigned available_parallelism() noexcept {
     if (count != 0) return count;
   }
 #endif
-  return std::max(std::thread::hardware_concurrency(), 1u);
+  return (std::max)(std::thread::hardware_concurrency(), 1u);
 }
 
 void set_current(const Options& options) noexcept {

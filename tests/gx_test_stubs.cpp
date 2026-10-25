@@ -14,12 +14,14 @@
 #include "gfx/texture.hpp"
 #include "gfx/texture_replacement.hpp"
 #include "gx/pipeline.hpp"
+#include "gx/frame_interpolation.hpp"
 #include "gx/shader_info.hpp"
 #include "internal.hpp"
 #include "webgpu/gpu.hpp"
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <fmt/format.h>
 
 // --- aurora::g_config ---
@@ -69,8 +71,12 @@ void configure(const GXRenderModeObj*) noexcept {}
 // --- get_texture ---
 namespace aurora::gx {
 const gfx::TextureBind& get_texture(GXTexMapID id) noexcept { return g_gxState.textures[id]; }
+namespace testing {
+std::atomic<uint32_t> invalidateSourcesCount{0};
+}
 namespace texture {
 void invalidate_bindings() noexcept {}
+void invalidate_sources() noexcept { testing::invalidateSourcesCount.fetch_add(1, std::memory_order_release); }
 uint64_t current_bind_generation() noexcept { return 1; }
 GXState::CopyTextureRef resolve_copy_texture(const GXState::CopyTextureKey& key) noexcept {
   auto& ref = g_gxState.copyTextures[key.dest];
@@ -104,10 +110,11 @@ void evict_copy_texture(const void* dest) noexcept {
 void shutdown() noexcept {}
 Vec2<uint32_t> logical_fb_size() noexcept { return {640, 480}; }
 gfx::Viewport map_logical_viewport(const gfx::Viewport& logicalViewport) noexcept { return logicalViewport; }
+gfx::Viewport mapped_render_viewport() noexcept { return map_logical_viewport(g_gxState.logicalViewport); }
 gfx::ClipRect map_logical_scissor(const gfx::ClipRect& logicalScissor) noexcept { return logicalScissor; }
 void set_logical_viewport(const gfx::Viewport& viewport) noexcept {
   g_gxState.logicalViewport = viewport;
-  set_render_viewport(map_logical_viewport(viewport));
+  set_render_viewport(mapped_render_viewport());
 }
 void set_render_viewport(const gfx::Viewport& viewport) noexcept { g_gxState.renderViewport = viewport; }
 void set_logical_scissor(const gfx::ClipRect& scissor) noexcept {
@@ -116,6 +123,20 @@ void set_logical_scissor(const gfx::ClipRect& scissor) noexcept {
 }
 void set_render_scissor(const gfx::ClipRect& scissor) noexcept { g_gxState.renderScissor = scissor; }
 } // namespace aurora::gx
+
+namespace aurora::gx::detail {
+std::atomic_uint32_t g_frameInterpolationFps{0};
+}
+
+namespace aurora::gx {
+// This fixture never enables interpolation; unexpected calls must fail loudly.
+std::array<gfx::Range, MaxInterpolatedFrames> record_interpolation_draw(
+    const FrameInterpolationDrawIdentity&, const Mat4x4<float>&, uint16_t,
+    const InterpolatedUniformLayout&) noexcept {
+  std::abort();
+}
+void extend_interpolation_draw(uint16_t) noexcept { std::abort(); }
+}
 
 // --- Shader/pipeline stubs ---
 namespace aurora::gx {
@@ -131,9 +152,9 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {}
 
 // --- Buffer push stubs ---
 namespace aurora::gfx {
-Range push_verts(const uint8_t* data, size_t length, size_t alignment) { return {}; }
 Range push_indices(const uint8_t* data, size_t length, size_t alignment) { return {}; }
 namespace testing {
+std::vector<uint8_t> vertexData;
 std::vector<uint8_t> uniformData;
 std::vector<uint8_t> storageData;
 } // namespace testing
@@ -143,6 +164,15 @@ static Range push_test_data(std::vector<uint8_t>& target, const uint8_t* data, s
     target.insert(target.end(), data, data + length);
   }
   return {offset, static_cast<uint32_t>(length)};
+}
+Range push_verts(const uint8_t* data, size_t length, size_t alignment) {
+  return push_test_data(testing::vertexData, data, length);
+}
+const uint8_t* vertex_data(const Range& range) noexcept {
+  return testing::vertexData.data() + range.offset;
+}
+const uint8_t* uniform_data(const Range& range) noexcept {
+  return testing::uniformData.data() + range.offset;
 }
 Range push_uniform(const uint8_t* data, size_t length) { return push_test_data(testing::uniformData, data, length); }
 Range push_storage(const uint8_t* data, size_t length) { return push_test_data(testing::storageData, data, length); }
@@ -228,11 +258,13 @@ std::atomic<uint32_t> endOffscreenCount{0};
 std::atomic<uint32_t> resolvePassCount{0};
 std::atomic<uint32_t> offscreenWidth{0};
 std::atomic<uint32_t> offscreenHeight{0};
+ResolveOptions lastResolveOptions;
 } // namespace testing
 
 void resolve_pass_into(TextureHandle texture, ClipRect rect, bool clearColor, bool clearAlpha, bool clearDepth,
                        Vec4<float> clearColorValue, float clearDepthValue, GXTexFmt resolveFormat,
-                       GXPixelFmt sourceFormat) {
+                       GXPixelFmt sourceFormat, const ResolveOptions& options) {
+  testing::lastResolveOptions = options;
   testing::resolvePassCount.fetch_add(1, std::memory_order_release);
 }
 void begin_offscreen(uint32_t width, uint32_t height) {
@@ -243,6 +275,11 @@ void begin_offscreen(uint32_t width, uint32_t height) {
 void end_offscreen() { testing::endOffscreenCount.fetch_add(1, std::memory_order_release); }
 bool is_offscreen() noexcept { return false; }
 } // namespace aurora::gfx
+
+namespace aurora::gfx::presentation {
+std::atomic<uint32_t> guestWriteCount{0};
+void notify_guest_write(const void*, size_t) noexcept { guestWriteCount.fetch_add(1, std::memory_order_release); }
+}
 
 // --- Readback recording hooks ---
 namespace aurora::gfx {

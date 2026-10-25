@@ -93,9 +93,9 @@ TEST_F(PadAdapterTest, KeyboardBindingsProduceStatus) {
   const auto status = read();
   EXPECT_NE(status.button & PAD_BUTTON_A, 0);
   EXPECT_EQ(status.stickX, 127);
-  // Digital L forces the analog trigger to 180.
+  // Digital L fills the raw analog trigger range.
   EXPECT_NE(status.button & PAD_TRIGGER_L, 0);
-  EXPECT_EQ(status.triggerLeft, 180);
+  EXPECT_EQ(status.triggerLeft, 255);
 
   // Opposing keys on one axis sum to zero.
   key(SDL_SCANCODE_A, true);

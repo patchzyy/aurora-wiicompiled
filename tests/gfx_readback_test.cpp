@@ -319,13 +319,15 @@ protected:
   static void run_frame(const std::function<void()>& body) {
     ASSERT_TRUE(gfx::begin_frame());
     gx::fifo::begin_frame();
+    AuroraSetDrawsBlocking(true);
     body();
     gx::fifo::drain();
     gx::fifo::end_frame();
     gx::texture::end_frame();
     gfx::finish();
     std::promise<void> submitted;
-    gfx::end_frame([&](wgpu::CommandEncoder& encoder, std::vector<gfx::AfterSubmitCallback> callbacks) {
+    gfx::end_frame([&](wgpu::CommandEncoder& encoder, std::vector<gfx::AfterSubmitCallback> callbacks,
+                       const gfx::InterpolationReplay&) {
       const auto commands = encoder.Finish();
       webgpu::g_queue.Submit(1, &commands);
       for (auto& callback : callbacks) {

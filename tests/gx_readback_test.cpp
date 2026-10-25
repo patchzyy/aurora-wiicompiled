@@ -7,6 +7,7 @@
 
 #include <dolphin/gx/GXAurora.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <utility>
@@ -25,6 +26,10 @@ extern std::vector<uint8_t> uniformData;
 extern std::vector<uint8_t> storageData;
 } // namespace testing
 } // namespace aurora::gfx
+
+namespace aurora::gfx::presentation {
+extern std::atomic<uint32_t> guestWriteCount;
+}
 
 namespace {
 using namespace aurora;
@@ -153,6 +158,21 @@ protected:
 };
 
 // --- Capture ---
+
+TEST_F(AuroraReadbackTest, DepthProbeNotifiesGuestWrites) {
+  auto& count = gfx::presentation::guestWriteCount;
+  count.store(0, std::memory_order_relaxed);
+  alignas(32) static u8 probe[64]{};
+  set_copy(0, 0, 8, 8, GX_TF_Z8);
+  GXCopyTex(probe, GX_FALSE);
+  EXPECT_EQ(count.load(std::memory_order_acquire), 1u);
+  EXPECT_TRUE(std::all_of(std::begin(probe), std::end(probe), [](u8 value) { return value == 0xff; }));
+  process();
+  complete_all();
+
+  GXCopyTex(probe, GX_FALSE);
+  EXPECT_EQ(count.load(std::memory_order_acquire), 2u);
+}
 
 TEST_F(AuroraReadbackTest, CaptureIsOneCommandRecordedWhenProcessed) {
   ASSERT_TRUE(capture({z(0, 10, 20), z(1, 11, 20), argb(2, 12, 20)}));

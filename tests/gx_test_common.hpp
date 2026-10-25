@@ -6,6 +6,7 @@
 
 #include "gx/gx.hpp"
 #include "gx/fifo.hpp"
+#include "gx/frame_interpolation.hpp"
 #include "gfx/depth_peek.hpp"
 #include "gx/command_processor.hpp"
 #include "gfx/readback/readback.hpp"
@@ -22,6 +23,7 @@ protected:
     GXInit(nullptr, 0);
     aurora::gx::fifo::clear_buffer();
     aurora::gx::g_gxState = aurora::gx::GXState{};
+    ASSERT_FALSE(aurora::gx::frame_interpolation_active());
     aurora::gfx::depth_peek::testing::reset();
     aurora::gfx::readback::initialize();
   }

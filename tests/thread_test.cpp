@@ -69,7 +69,7 @@ TEST(ThreadTest, SharedCachePreservesFourAllowedCpus) {
     }
     return result;
   };
-  const auto outsideCount = std::min(3u, static_cast<unsigned>(std::popcount(outside)));
+  const auto outsideCount = (std::min)(3u, static_cast<unsigned>(std::popcount(outside)));
   const auto selected = take(outside, outsideCount) | take(domainMask, 4 - outsideCount);
   ASSERT_EQ(std::popcount(selected), 4);
   std::thread worker([&] {

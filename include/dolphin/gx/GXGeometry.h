@@ -35,8 +35,10 @@ void GXEnableTexOffsets(GXTexCoordID coord, GXBool line_enable, GXBool point_ena
 #ifdef TARGET_PC
 void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride, bool le);
 #ifdef __cplusplus
+extern "C++" {
 static inline void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride) {
   GXSetArray(attr, data, size, stride, false);
+}
 }
 #endif
 #define GXSETARRAY(attr, data, size, stride, le) GXSetArray((attr), (data), (size), (stride), (le))

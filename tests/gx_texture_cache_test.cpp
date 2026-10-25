@@ -11,6 +11,7 @@
 
 namespace aurora::gx::testing {
 void reset_texture_stubs();
+void set_guest_write_generation(uint64_t generation);
 uint64_t texture_allocations();
 uint64_t palette_conversions();
 uint64_t copy_allocations();
@@ -89,6 +90,33 @@ TEST_F(GxTextureCacheTest, ObjectHitDoesNotHashAgain) {
   EXPECT_EQ(texture_stats().hashedBytes, hashedBytes);
   EXPECT_EQ(texture_stats().objectHits, 1);
   EXPECT_EQ(testing::texture_allocations(), 1);
+}
+
+TEST_F(GxTextureCacheTest, GuestWriteGenerationInvalidatesObjectHit) {
+  std::array<uint8_t, 16> pixels{};
+  const auto obj = make_texture(pixels.data(), 1);
+  testing::set_guest_write_generation(1);
+  const auto first = texture::resolve_static_texture(obj);
+  EXPECT_EQ(texture::resolve_static_texture(obj), first);
+  EXPECT_EQ(testing::texture_allocations(), 1);
+
+  pixels[0] = 1;
+  texture::invalidate_sources();
+  const auto hashedBytes = texture_stats().hashedBytes;
+  EXPECT_EQ(texture::resolve_static_texture(obj), first);
+  EXPECT_EQ(texture_stats().hashedBytes, hashedBytes);
+
+  testing::set_guest_write_generation(2);
+  texture::invalidate_sources();
+  const auto second = texture::resolve_static_texture(obj);
+  EXPECT_NE(second, first);
+  EXPECT_GT(texture_stats().hashedBytes, hashedBytes);
+  EXPECT_EQ(testing::texture_allocations(), 2);
+
+  testing::set_guest_write_generation(3);
+  texture::invalidate_sources();
+  EXPECT_EQ(texture::resolve_static_texture(obj), second);
+  EXPECT_EQ(testing::texture_allocations(), 2);
 }
 
 TEST_F(GxTextureCacheTest, ChangedContentAndMetadataMiss) {
