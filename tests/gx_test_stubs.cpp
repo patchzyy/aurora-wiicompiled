@@ -158,7 +158,10 @@ std::vector<uint8_t> vertexData;
 std::vector<uint8_t> uniformData;
 std::vector<uint8_t> storageData;
 } // namespace testing
-static Range push_test_data(std::vector<uint8_t>& target, const uint8_t* data, size_t length) {
+static Range push_test_data(std::vector<uint8_t>& target, const uint8_t* data, size_t length, size_t alignment = 0) {
+  if (alignment != 0) {
+    target.resize(AURORA_ALIGN(target.size(), alignment), 0);
+  }
   const auto offset = static_cast<uint32_t>(target.size());
   if (data != nullptr && length != 0) {
     target.insert(target.end(), data, data + length);
@@ -166,7 +169,7 @@ static Range push_test_data(std::vector<uint8_t>& target, const uint8_t* data, s
   return {offset, static_cast<uint32_t>(length)};
 }
 Range push_verts(const uint8_t* data, size_t length, size_t alignment) {
-  return push_test_data(testing::vertexData, data, length);
+  return push_test_data(testing::vertexData, data, length, alignment);
 }
 const uint8_t* vertex_data(const Range& range) noexcept {
   return testing::vertexData.data() + range.offset;

@@ -30,6 +30,7 @@ extern std::atomic<uint32_t> resolvePassCount;
 extern std::atomic<uint32_t> offscreenWidth;
 extern std::atomic<uint32_t> offscreenHeight;
 extern ResolveOptions lastResolveOptions;
+extern std::vector<uint8_t> vertexData;
 } // namespace testing
 } // namespace aurora::gfx
 
@@ -201,6 +202,39 @@ TEST_F(GXFifoTest, TextureCopyPreservesResolveOptions) {
     EXPECT_EQ(lastResolveOptions.clampBottom, (clamp & GX_CLAMP_BOTTOM) != 0);
     EXPECT_TRUE(lastResolveOptions.persistent);
   }
+}
+
+TEST_F(GXFifoTest, VertexRangesAlignNewDrawsAndKeepMergedDataContiguous) {
+  auto& bytes = aurora::gfx::testing::vertexData;
+  bytes.clear();
+  const u8 first[] = {0x11, 0x22, 0x33};
+  const u8 second[] = {0x44};
+  const u8 merged[] = {0x55, 0x66};
+  const auto a = aurora::gfx::push_verts(first, sizeof(first), 4);
+  const auto b = aurora::gfx::push_verts(second, sizeof(second), 4);
+  const auto c = aurora::gfx::push_verts(merged, sizeof(merged), 0);
+  EXPECT_EQ(a.offset, 0u);
+  EXPECT_EQ(a.size, sizeof(first));
+  EXPECT_EQ(b.offset, 4u);
+  EXPECT_EQ(b.size, sizeof(second));
+  EXPECT_EQ(c.offset, b.offset + b.size);
+  EXPECT_EQ(c.size, sizeof(merged));
+  EXPECT_EQ(bytes, (std::vector<u8>{0x11, 0x22, 0x33, 0, 0x44, 0x55, 0x66}));
+  EXPECT_EQ(*aurora::gfx::vertex_data(b), 0x44);
+}
+
+TEST_F(GXFifoTest, EmptyVertexRangesPreserveAlignment) {
+  auto& bytes = aurora::gfx::testing::vertexData;
+  bytes.clear();
+  const u8 data[] = {1, 2, 3, 4};
+  aurora::gfx::push_verts(data, sizeof(data), 4);
+  const auto aligned = aurora::gfx::push_verts(nullptr, 0, 4);
+  EXPECT_EQ(aligned.offset, 4u);
+  EXPECT_EQ(bytes.size(), 4u);
+  const auto padded = aurora::gfx::push_verts(nullptr, 0, 8);
+  EXPECT_EQ(padded.offset, 8u);
+  EXPECT_EQ(padded.size, 0u);
+  EXPECT_EQ(bytes, (std::vector<u8>{1, 2, 3, 4, 0, 0, 0, 0}));
 }
 
 TEST_F(GXFifoTest, InvalidateTexturesNotifiesSourceCache) {
