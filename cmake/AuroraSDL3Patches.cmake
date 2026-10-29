@@ -40,6 +40,32 @@ function(aurora_sdl3_apply_patches sdl_source_dir)
   if (NOT EXISTS "${_hidapi}")
     message(FATAL_ERROR "aurora: SDL3 source tree at ${sdl_source_dir} has no SDL_hidapijoystick.c")
   endif ()
+  set(_switch "${sdl_source_dir}/src/joystick/hidapi/SDL_hidapi_switch.c")
+  if (NOT EXISTS "${_switch}")
+    message(FATAL_ERROR "aurora: SDL3 source tree at ${sdl_source_dir} has no SDL_hidapi_switch.c")
+  endif ()
+  set(_controllers "${sdl_source_dir}/src/joystick/controller_list.h")
+  if (NOT EXISTS "${_controllers}")
+    message(FATAL_ERROR "aurora: SDL3 source tree at ${sdl_source_dir} has no controller_list.h")
+  endif ()
+
+  # Backport of SDL c0efc5862 (drop once SDL includes it): the wired PDP Afterglow Wave shares
+  # 0e6f:018b with the wireless one but only speaks the input-only protocol over USB.
+  _aurora_sdl3_replace("${_controllers}" "PDP Afterglow Wave is input-only over USB (controller list)"
+[==[	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x018b ), k_eControllerType_SwitchProController, NULL },  // PDP Afterglow Wave Wireless Controller for Switch
+]==]
+[==[	{ MAKE_CONTROLLER_ID( 0x0e6f, 0x018b ), k_eControllerType_SwitchInputOnlyController, NULL },  // PDP Afterglow Wave Wired/Wireless Controller for Switch
+]==])
+  _aurora_sdl3_replace("${_switch}" "PDP Afterglow Wave is input-only over USB (full protocol over Bluetooth)"
+[==[    // Find out whether or not we can send output reports
+    ctx->m_bInputOnly = SDL_IsJoystickNintendoSwitchProInputOnly(device->vendor_id, device->product_id);
+]==]
+[==[    // Find out whether or not we can send output reports
+    // Third party controllers use the full Switch Pro wireless protocol over Bluetooth
+    if (!device->is_bluetooth) {
+        ctx->m_bInputOnly = SDL_IsJoystickNintendoSwitchProInputOnly(device->vendor_id, device->product_id);
+    }
+]==])
 
   # Backport of SDL 71f4af732 (drop once SDL includes it): rumble writes must not hold dev_lock.
   _aurora_sdl3_replace("${_rumble}" "HIDAPI rumble writes no longer hold the device lock"

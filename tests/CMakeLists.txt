@@ -298,3 +298,10 @@ target_include_directories(os_alloc_tests PRIVATE
 target_compile_definitions(os_alloc_tests PRIVATE AURORA TARGET_PC=1)
 target_link_libraries(os_alloc_tests PRIVATE gtest gtest_main fmt::fmt)
 gtest_discover_tests(os_alloc_tests)
+
+# Checks AuroraSDL3Patches.cmake through SDL internals, which a shared SDL does not export.
+if (AURORA_SDL3_PROVIDER STREQUAL "vendor" AND AURORA_SDL3_TARGET MATCHES "static")
+  add_executable(sdl_patch_tests sdl_patch_test.cpp)
+  target_link_libraries(sdl_patch_tests PRIVATE gtest gtest_main ${AURORA_SDL3_TARGET})
+  gtest_discover_tests(sdl_patch_tests)
+endif ()
