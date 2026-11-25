@@ -853,8 +853,19 @@ void set_display_mode(AuroraDisplayMode mode) {
   } else {
     const SDL_DisplayID display = SDL_GetDisplayForWindow(g_window);
     const SDL_DisplayMode* desktop = display != 0 ? SDL_GetDesktopDisplayMode(display) : nullptr;
-    const uint32_t interpolationFps = aurora_get_frame_interpolation_fps();
-    const float targetHz = interpolationFps > 60 ? static_cast<float>(interpolationFps) : 60.0f;
+    // Paced presents want the refresh nearest the cap ("match display" keeps the desktop rate);
+    // a plain 60 Hz game picks 60.
+    uint32_t pacingMode = AURORA_FRAME_PACING_OFF;
+    uint32_t pacingCap = 0;
+    aurora_get_frame_pacing(&pacingMode, &pacingCap);
+    float targetHz = 60.0f;
+    if (pacingMode != AURORA_FRAME_PACING_OFF) {
+      if (pacingCap > 60) {
+        targetHz = static_cast<float>(pacingCap);
+      } else if (desktop != nullptr && desktop->refresh_rate > 0.0f) {
+        targetHz = desktop->refresh_rate;
+      }
+    }
     SDL_DisplayMode closest{};
     if (desktop == nullptr ||
         !SDL_GetClosestFullscreenDisplayMode(display, desktop->w, desktop->h, targetHz, true, &closest)) {

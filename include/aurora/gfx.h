@@ -68,8 +68,19 @@ typedef struct {
 
 void aurora_get_frame_interpolation_diagnostics(AuroraFrameInterpolationDiagnostics* diagnostics);
 
-// Generates transform-interpolated perspective frames between consecutive 60 Hz logical frames.
-// Supported targets are 0 (off), 120, 180 and 240. Guest simulation and VI timing are unchanged.
+// Inserted presents between consecutive 60 Hz logical frames. Guest simulation and VI timing are
+// unchanged. mode: 0 off, 1 smooth (interpolate; the native frame shows last), 2 responsive (the
+// native frame shows at once, then extrapolated frames follow). capFps caps the present rate; 0
+// matches the display, and a non-tearing present mode never goes past the display refresh.
+#define AURORA_FRAME_PACING_OFF 0u
+#define AURORA_FRAME_PACING_SMOOTH 1u
+#define AURORA_FRAME_PACING_RESPONSIVE 2u
+void aurora_set_frame_pacing(uint32_t mode, uint32_t capFps);
+void aurora_get_frame_pacing(uint32_t* mode, uint32_t* capFps);
+// Present rate the pacing currently aims for; 0 when off or the display refresh is unknown.
+double aurora_get_effective_present_fps();
+// Older interface: a target above 60 means smooth pacing capped at that rate, anything else off.
+// The getter returns the cap while pacing is on (0 for "match display" or off).
 void aurora_set_frame_interpolation_fps(uint32_t targetFps);
 uint32_t aurora_get_frame_interpolation_fps();
 

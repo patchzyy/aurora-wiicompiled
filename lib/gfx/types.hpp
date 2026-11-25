@@ -1,5 +1,6 @@
 #pragma once
 
+#include "present_plan.hpp"
 #include "hash.hpp"
 #include "../internal.hpp"
 #include "../webgpu/gpu.hpp"
@@ -37,9 +38,10 @@ using webgpu::Viewport;
 struct TextureRef;
 using TextureHandle = std::shared_ptr<TextureRef>;
 using AfterSubmitCallback = std::function<void()>;
-// Re-encodes the frame for interpolated presentation slot `slot` into `cmd`.
+// The frame's presents in order (see present_plan.hpp); `encode` re-encodes the frame for
+// interpolated slot `slot` into `cmd`.
 struct InterpolationReplay {
-  uint32_t slots = 0;
+  PresentPlan plan;
   std::function<void(wgpu::CommandEncoder& cmd, uint32_t slot)> encode;
 };
 using EndFrameCallback =

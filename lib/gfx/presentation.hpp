@@ -27,6 +27,12 @@ void report_display_present_wait(uint64_t waitNanos) noexcept;
 // Whether the display refreshes fast enough to show frames between native frames `intervalNanos` apart.
 bool display_shows_interpolation(uint64_t intervalNanos) noexcept;
 
+// Native frame interval last reported by the producer, or 60 Hz before the first report.
+uint64_t native_interval_nanos() noexcept;
+// Present period for a frame-rate cap (0 = match display), limited to the display refresh unless
+// the present mode tears.
+uint64_t pacing_present_period_nanos(uint32_t capFps) noexcept;
+
 // steady_clock time in nanoseconds, the clock present schedules are expressed in.
 uint64_t now_nanos() noexcept;
 // Blocks until `deadlineNanos` with sub-millisecond precision; 0 returns immediately.

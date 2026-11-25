@@ -3,13 +3,15 @@
 #include "gx.hpp"
 
 #include "aurora/gfx.h"
+#include "../gfx/present_plan.hpp"
 
 #include <atomic>
 
 // Frame interpolation: generates intermediate presentation frames between two consecutive 60 Hz
-// guest frames by re-staging each perspective draw's uniform block with interpolated transforms.
+// guest frames by re-staging each perspective draw's uniform block with interpolated (or, in the
+// responsive mode, extrapolated) transforms. gfx::make_present_plan decides times and weights.
 namespace aurora::gx {
-constexpr uint32_t MaxInterpolatedFrames = 3;
+constexpr uint32_t MaxInterpolatedFrames = gfx::MaxPresentPlanSlots;
 
 // Identifies a draw across frames. `combined` includes the geometry signature and is exact, while
 // `pipeline`/`texture` is the material-only fallback for meshes whose vertex data changes.
@@ -38,16 +40,22 @@ struct InterpolatedUniformLayout {
 namespace detail {
 // Defined in frame_interpolation.cpp, exposed so the early-outs below stay inline: the shipped
 // build compiles shards without LTO, so a cross-TU call would land on every draw in the frame.
-extern std::atomic_uint32_t g_frameInterpolationFps;
+extern std::atomic_uint32_t g_framePacingMode;
+extern std::atomic_uint32_t g_framePacingCap;
 } // namespace detail
 
-// 0 when interpolation is disabled; otherwise the configured target (120/180/240).
-inline uint32_t frame_interpolation_fps() noexcept {
-  return detail::g_frameInterpolationFps.load(std::memory_order_acquire);
+inline gfx::PacingMode frame_pacing_mode() noexcept {
+  return static_cast<gfx::PacingMode>(detail::g_framePacingMode.load(std::memory_order_acquire));
 }
-inline bool frame_interpolation_active() noexcept { return frame_interpolation_fps() != 0; }
+// Configured frame-rate cap; 0 matches the display.
+inline uint32_t frame_pacing_cap() noexcept { return detail::g_framePacingCap.load(std::memory_order_acquire); }
+inline bool frame_interpolation_active() noexcept { return frame_pacing_mode() != gfx::PacingMode::Off; }
 
-void set_frame_interpolation_fps(uint32_t targetFps) noexcept;
+void set_frame_pacing(gfx::PacingMode mode, uint32_t capFps) noexcept;
+// Present period the pacing currently aims for, 0 when off or unknown.
+uint64_t frame_pacing_period_nanos() noexcept;
+// The plan the last sealed frame will present by.
+const gfx::PresentPlan& sealed_present_plan() noexcept;
 
 // Interpolated slot being encoded on this thread, or -1 for the native frame.
 extern thread_local int g_interpolationEncodeSlot;
@@ -61,7 +69,6 @@ void finalize_frame_interpolation() noexcept;
 // Fills the observability snapshot behind aurora_get_frame_interpolation_diagnostics.
 void get_frame_interpolation_diagnostics(AuroraFrameInterpolationDiagnostics& diagnostics) noexcept;
 bool has_interpolated_frame() noexcept;
-uint32_t interpolated_frame_count() noexcept;
 void mark_frame_interpolation_replay_unsafe() noexcept;
 // Drops the interpolation tasks staged into the currently mapped uniform range. Required of
 // anything that unmaps or rotates that range before the frame is finalized.

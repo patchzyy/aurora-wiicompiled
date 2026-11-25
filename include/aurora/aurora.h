@@ -181,6 +181,34 @@ void aurora_set_present_schedule(uint64_t baseNanos, uint64_t intervalNanos);
 // slot group from this, backing off after misses. Only paced presents may report.
 void aurora_report_producer_paced(bool paced);
 
+// Render-worker timing for frames tagged with aurora_set_frame_tag, on the steady_clock nanosecond
+// timeline present schedules use. Each frame reports one RENDER_SUBMIT pair (from when the render
+// worker takes the frame until the native frame is submitted) and one PRESENT pair per present
+// that reached the display, interpolated slots included.
+typedef enum {
+  AURORA_FRAME_RENDER_SUBMIT_START = 0,
+  AURORA_FRAME_RENDER_SUBMIT_END = 1,
+  AURORA_FRAME_PRESENT_START = 2,
+  AURORA_FRAME_PRESENT_END = 3,
+} AuroraFrameTimingType;
+typedef struct {
+  uint64_t frameTag;
+  uint64_t timeNanos;
+  AuroraFrameTimingType type;
+  // Interpolated slot of a PRESENT event, -1 for the native frame and for RENDER_SUBMIT events.
+  int32_t slot;
+  // The first present of this frame that reached the display.
+  bool first;
+} AuroraFrameTimingEvent;
+typedef void (*AuroraFrameTimingCallback)(const AuroraFrameTimingEvent* event, void* user);
+// Runs on the render worker thread, so keep it short. NULL clears it.
+void aurora_set_frame_timing_callback(AuroraFrameTimingCallback callback, void* user);
+// Tags the frames sealed from now on; the tag comes back in their timing events.
+void aurora_set_frame_tag(uint64_t tag);
+// PCI vendor and device ID of the GPU aurora renders with, and the backend actually in use (which
+// aurora_get_backend, the requested one, may leave at BACKEND_AUTO). False before the GPU is set up.
+bool aurora_get_adapter_info(uint32_t* vendorId, uint32_t* deviceId, AuroraBackend* backend);
+
 void aurora_set_log_level(AuroraLogLevel level);
 void aurora_set_pause_on_focus_lost(bool value);
 void aurora_set_background_input(bool value);

@@ -1,10 +1,12 @@
 #include "presentation.hpp"
 
+#include "present_plan.hpp"
 #include "render_worker.hpp"
 #include "resources.hpp"
 #include "../gx/frame_interpolation.hpp"
 #include "../internal.hpp"
 #include "../window.hpp"
+#include "../webgpu/gpu.hpp"
 
 #include <aurora/aurora.h>
 #include <dolphin/gx/GXAurora.h>
@@ -159,6 +161,19 @@ bool display_shows_interpolation(uint64_t intervalNanos) noexcept {
   return period == 0 || intervalNanos == 0 || period * 20 < intervalNanos * 19;
 }
 
+uint64_t native_interval_nanos() noexcept {
+  const uint64_t interval = g_nativeIntervalNanos.load(std::memory_order_relaxed);
+  return interval != 0 ? interval : 16'666'000;
+}
+
+uint64_t pacing_present_period_nanos(uint32_t capFps) noexcept {
+  // Fifo waits for vblank and Mailbox replaces anything the display has not shown yet, so only
+  // Immediate (tearing) can put more presents on screen than the display refreshes.
+  const bool limitedToRefresh =
+      webgpu::g_graphicsConfig.surfaceConfiguration.presentMode != wgpu::PresentMode::Immediate;
+  return effective_present_period(capFps, window::refresh_period_nanos(), limitedToRefresh);
+}
+
 bool producer_paced() noexcept { return g_producerPaced.load(std::memory_order_acquire); }
 
 uint64_t now_nanos() noexcept {
@@ -284,9 +299,32 @@ void aurora_set_guest_write_hooks(AuroraGuestWriteGenerationCallback generation,
   aurora::gfx::presentation::g_guestWriteNotify.store(notify, std::memory_order_release);
 }
 
-void aurora_set_frame_interpolation_fps(uint32_t targetFps) { aurora::gx::set_frame_interpolation_fps(targetFps); }
+void aurora_set_frame_interpolation_fps(uint32_t targetFps) {
+  aurora::gx::set_frame_pacing(targetFps > 60 ? aurora::gfx::PacingMode::Smooth : aurora::gfx::PacingMode::Off,
+                               targetFps > 60 ? targetFps : 0);
+}
 
-uint32_t aurora_get_frame_interpolation_fps() { return aurora::gx::frame_interpolation_fps(); }
+uint32_t aurora_get_frame_interpolation_fps() {
+  return aurora::gx::frame_interpolation_active() ? aurora::gx::frame_pacing_cap() : 0;
+}
+
+void aurora_set_frame_pacing(uint32_t mode, uint32_t capFps) {
+  aurora::gx::set_frame_pacing(static_cast<aurora::gfx::PacingMode>(mode), capFps);
+}
+
+void aurora_get_frame_pacing(uint32_t* mode, uint32_t* capFps) {
+  if (mode != nullptr) {
+    *mode = static_cast<uint32_t>(aurora::gx::frame_pacing_mode());
+  }
+  if (capFps != nullptr) {
+    *capFps = aurora::gx::frame_pacing_cap();
+  }
+}
+
+double aurora_get_effective_present_fps() {
+  const uint64_t period = aurora::gx::frame_pacing_period_nanos();
+  return period == 0 ? 0.0 : 1e9 / static_cast<double>(period);
+}
 
 void aurora_get_frame_interpolation_diagnostics(AuroraFrameInterpolationDiagnostics* diagnostics) {
   if (diagnostics != nullptr) {

@@ -91,6 +91,7 @@ if (AURORA_ENABLE_GX)
             lib/webgpu/gpu_cache.cpp
             lib/webgpu/gpu_prof.cpp
             lib/gfx/presentation.cpp
+            lib/gfx/present_plan.cpp
             lib/dawn/BackendBinding.cpp
             lib/dawn/TracyPlatform.cpp
     )

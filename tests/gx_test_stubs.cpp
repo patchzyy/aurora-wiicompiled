@@ -144,7 +144,8 @@ void set_logical_scissor(const gfx::ClipRect& scissor) noexcept {
 }
 void set_render_scissor(const gfx::ClipRect& scissor) noexcept { g_gxState.renderScissor = scissor; }
 namespace detail {
-std::atomic_uint32_t g_frameInterpolationFps{0};
+std::atomic_uint32_t g_framePacingMode{0};
+std::atomic_uint32_t g_framePacingCap{0};
 }
 std::array<gfx::Range, MaxInterpolatedFrames> record_interpolation_draw(
     const FrameInterpolationDrawIdentity&, const Mat4x4<float>&, uint16_t,

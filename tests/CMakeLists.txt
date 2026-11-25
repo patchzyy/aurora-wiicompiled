@@ -310,3 +310,8 @@ if (AURORA_SDL3_PROVIDER STREQUAL "vendor" AND AURORA_SDL3_TARGET MATCHES "stati
   target_link_libraries(sdl_patch_tests PRIVATE gtest gtest_main ${AURORA_SDL3_TARGET})
   gtest_discover_tests(sdl_patch_tests)
 endif ()
+
+add_executable(present_plan_tests present_plan_test.cpp ../lib/gfx/present_plan.cpp)
+target_include_directories(present_plan_tests PRIVATE ../lib)
+target_link_libraries(present_plan_tests PRIVATE gtest gtest_main)
+gtest_discover_tests(present_plan_tests)

@@ -782,11 +782,13 @@ void end_frame(EndFrameCallback callback) {
   ++g_frameIndex;
   // Interpolated copies are written into the mapped staging buffer, so this precedes the unmap.
   gx::finalize_frame_interpolation();
-  const uint32_t interpolationSlots =
-      gx::has_interpolated_frame() && gx::frame_interpolation_replay_safe() ? gx::interpolated_frame_count() : 0;
+  // Without staged slots the frame presents once, as soon as it is encoded.
+  const PresentPlan presentPlan = gx::has_interpolated_frame() && gx::frame_interpolation_replay_safe()
+                                      ? gx::sealed_present_plan()
+                                      : make_present_plan(PacingMode::Off, 0, 0, 0, 0);
 
   const size_t stagingSlot = frame.stagingBuffer;
-  render_worker::enqueue_end_frame(frameId, [frameSlot, stagingSlot, interpolationSlots,
+  render_worker::enqueue_end_frame(frameId, [frameSlot, stagingSlot, presentPlan,
                                              callback = std::move(callback)]() mutable {
     auto& packet = g_framePackets[frameSlot];
     g_stagingBuffers[stagingSlot].Unmap();
@@ -797,7 +799,7 @@ void end_frame(EndFrameCallback callback) {
     // Slots may be skipped, so the first one actually encoded uploads the staging data.
     bool stagingCopied = false;
     const InterpolationReplay replay{
-        .slots = interpolationSlots,
+        .plan = presentPlan,
         .encode =
             [&packet, &stagingCopied](wgpu::CommandEncoder& cmd, uint32_t slot) {
               if (!stagingCopied) {
