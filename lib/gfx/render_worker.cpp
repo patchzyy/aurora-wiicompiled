@@ -32,7 +32,7 @@ void complete_sync(const std::shared_ptr<SyncState>& sync) {
   sync->cv.notify_all();
 }
 
-void worker_main(std::stop_token token) {
+void worker_main(aurora::thread::StopToken token) {
   g_workerThreadId = std::this_thread::get_id();
 
   while (true) {

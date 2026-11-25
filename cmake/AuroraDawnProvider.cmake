@@ -145,12 +145,27 @@ if (_aurora_dawn_provider STREQUAL "vendor")
     endif ()
 
     include(FetchContent)
+    set(_aurora_dawn_patch_command)
+    if (CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
+      # PATCH_COMMAND does not run for a tree handed in through FETCHCONTENT_SOURCE_DIR_DAWN.
+      set(_aurora_dawn_patches "${CMAKE_CURRENT_LIST_DIR}/AuroraDawnPatches.cmake")
+      include("${_aurora_dawn_patches}")
+      if (DEFINED FETCHCONTENT_SOURCE_DIR_DAWN AND EXISTS "${FETCHCONTENT_SOURCE_DIR_DAWN}")
+        aurora_dawn_apply_patches("${FETCHCONTENT_SOURCE_DIR_DAWN}")
+      endif ()
+      set(_aurora_dawn_patch_command
+        PATCH_COMMAND ${CMAKE_COMMAND}
+          -DDAWN_SOURCE_DIR=<SOURCE_DIR>
+          -P "${_aurora_dawn_patches}")
+    endif ()
     FetchContent_Declare(dawn
       URL "https://github.com/encounter/dawn/archive/${AURORA_DAWN_REF}.tar.gz"
       DOWNLOAD_EXTRACT_TIMESTAMP FALSE
+      ${_aurora_dawn_patch_command}
       EXCLUDE_FROM_ALL
     )
     FetchContent_MakeAvailable(dawn)
+
     if (NOT TARGET webgpu_dawn)
       message(FATAL_ERROR "Failed to make dawn available")
     endif ()

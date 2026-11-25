@@ -16,6 +16,9 @@
 #if defined(__linux__)
 #include <pthread.h>
 #include <sched.h>
+#elif defined(__FreeBSD__)
+#include <pthread.h>
+#include <pthread_np.h>
 #elif defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -274,7 +277,7 @@ void set_thread_name(const std::string& name) noexcept {
 #elif defined(__APPLE__)
   const std::string truncated = name.substr(0, 63);
   pthread_setname_np(truncated.c_str());
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__FreeBSD__)
   const std::string truncated = name.substr(0, 15);
   pthread_setname_np(pthread_self(), truncated.c_str());
 #endif

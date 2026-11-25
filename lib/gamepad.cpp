@@ -6,6 +6,7 @@
 #include "magic_enum.hpp"
 
 #include <SDL3/SDL_haptic.h>
+#include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_properties.h>
 #include <SDL3/SDL.h>
 #include <absl/container/flat_hash_map.h>
@@ -587,6 +588,12 @@ void persist_controller_for_player(uint32_t player, const GameController* contro
 }
 
 void initialize() noexcept {
+#if defined(__FreeBSD__)
+  /* SDL's GIP driver answers HELLO but never finishes the metadata exchange
+   * over FreeBSD libusb, so no joystick is ever created. The XboxOne driver
+   * handles the same wired controllers correctly here. */
+  SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_GIP, "0");
+#endif
   /* Make sure we initialize everything input related now, this will automatically add all of the connected controllers
    * as expected */
   AURORA_ASSERT(SDL_Init(SDL_INIT_HAPTIC | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD | SDL_INIT_SENSOR),

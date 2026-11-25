@@ -18,8 +18,8 @@ TEST(ThreadTest, DestructorRequestsStopAndJoins) {
                       .name = "Aurora thread test",
                       .priority = Priority::Low,
                   },
-                  [&](std::stop_token token) {
-                    std::stop_callback wakeOnStop{token, [&] { cv.notify_all(); }};
+                  [&](StopToken token) {
+                    StopCallback wakeOnStop{token, [&] { cv.notify_all(); }};
                     std::unique_lock lock{mutex};
                     started = true;
                     cv.notify_all();

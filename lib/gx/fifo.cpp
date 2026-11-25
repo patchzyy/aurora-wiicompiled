@@ -93,8 +93,8 @@ void process_to(uint64_t target, std::memory_order order) noexcept {
   }
 }
 
-void worker_main(std::stop_token token) noexcept {
-  std::stop_callback wakeOnStop{token, wake_worker};
+void worker_main(aurora::thread::StopToken token) noexcept {
+  aurora::thread::StopCallback wakeOnStop{token, wake_worker};
   while (true) {
     const uint32_t event = sWorkerWake.load(std::memory_order_acquire);
     const uint64_t processed = sProcessed.load(std::memory_order_relaxed);
